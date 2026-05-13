@@ -57,35 +57,37 @@ jobs:
           echo "--- built artifacts ---"
           ls -lh artifacts/
 
+      - name: Write release notes
+        run: |
+          set -euo pipefail
+          {
+            echo "Automated build from commit \`${GITHUB_SHA}\`."
+            echo ""
+            echo "## Install"
+            echo ""
+            echo "1. Download both files below."
+            echo "2. Unzip \`displayathon.app.zip\` and drag the \`.app\` to \`/Applications\`."
+            echo "   First launch: right-click → **Open** to get past Gatekeeper."
+            echo "3. Drop \`displayathon-service\` into the repo dist/ folder and run"
+            echo "   \`./service/install.sh\`, or put it directly at"
+            echo "   \`~/Library/displayathon/bin/displayathon-service\` and register the launchd plist."
+            echo ""
+            echo "## Commit"
+            echo '```'
+            git log -1 --pretty=%B
+            echo '```'
+          } > release-notes.md
+          echo "--- release notes ---"
+          cat release-notes.md
+
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           TAG="v${{ steps.package.outputs.version }}"
-          COMMIT_MSG=$(git log -1 --pretty=%B)
-
-          NOTES=$(cat <<EOF
-          Automated build from commit \`${{ github.sha }}\`.
-
-          ## Install
-
-          1. Download both files below.
-          2. Unzip \`displayathon.app.zip\` and drag the \`.app\` to \`/Applications\`.
-             First launch: right-click → **Open** to get past Gatekeeper.
-          3. Drop \`displayathon-service\` into your local clone's \`dist/\` directory and run
-             \`./service/install.sh\`, **or** put it directly at
-             \`~/Library/displayathon/bin/displayathon-service\` and register the launchd plist.
-
-          ## Commit
-          \`\`\`
-          $COMMIT_MSG
-          \`\`\`
-          EOF
-          )
-
           gh release create "$TAG" \
             --title "$TAG" \
-            --notes "$NOTES" \
+            --notes-file release-notes.md \
             artifacts/displayathon.app.zip \
             artifacts/displayathon-service
