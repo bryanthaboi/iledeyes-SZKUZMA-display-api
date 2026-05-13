@@ -1,0 +1,23 @@
+# build artifacts and venvs
+.venv/
+.build-venv/
+build/
+dist/
+
+# python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# editor / OS detritus
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# secrets and local config
+.env
+.env.*
+!.env.example
