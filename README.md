@@ -374,6 +374,37 @@ launchctl bootout gui/$(id -u)/com.boisclubgames.displayathon
 
 ---
 
+## Automated builds (GitHub Actions, self-hosted runner)
+
+`.github/workflows/build.yml` builds the two artifacts and publishes a tagged GitHub release on every push to `main`. Because PyInstaller binaries are macOS-architecture-specific and require the full build toolchain, the workflow runs on a **self-hosted runner** — i.e., this Mac.
+
+### One-time runner setup
+
+1. Repo → **Settings → Actions → Runners → New self-hosted runner → macOS**.
+2. Follow GitHub's three commands (download, configure, run) — they'll register the runner with the repo and start the listener.
+3. Either run it interactively (`./run.sh`) for ad-hoc builds, or install it as a launchd service so it's always available:
+   ```bash
+   ./svc.sh install
+   ./svc.sh start
+   ```
+4. Make sure `python3` (3.11+) and `gh` (`brew install gh`) are on the runner's `$PATH`. Both are needed by the workflow.
+
+### Triggers
+
+- **Push to `main`** → build + release.
+- **Workflow Dispatch** from the Actions tab → manual rebuild.
+
+### What gets published
+
+Each release is tagged `v<UTC-date>-<short-sha>` (e.g. `v2026.05.13-1a2b3c4`) and contains:
+
+- `displayathon.app.zip` — the desktop UI, packaged with `ditto` so codesign and xattrs survive a round-trip through the zip.
+- `displayathon-service` — the standalone CLI binary that launchd runs.
+
+Pull either or both from the Releases page on any Mac.
+
+---
+
 ## Uninstall
 
 ```bash

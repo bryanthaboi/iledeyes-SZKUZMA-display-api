@@ -1,0 +1,91 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:    # also allow manual triggering from the Actions tab
+
+permissions:
+  contents: write       # needed to create releases + upload artifacts
+
+concurrency:
+  # Don't pile up parallel builds on the runner if you push twice quickly;
+  # cancel the older one.
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: [self-hosted, macOS]
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show build environment
+        run: |
+          echo "runner:     $RUNNER_NAME"
+          echo "workspace:  $GITHUB_WORKSPACE"
+          sw_vers
+          python3 --version
+          which python3
+
+      - name: Build artifacts
+        run: ./build.sh
+
+      - name: Package artifacts
+        id: package
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+
+          # .app is a directory — ditto preserves codesign + xattrs and produces
+          # a clean .zip that re-extracts as a proper launchable bundle.
+          ditto -c -k --sequesterRsrc --keepParent \
+            dist/displayathon.app \
+            artifacts/displayathon.app.zip
+
+          # Single-file service binary
+          cp dist/displayathon-service artifacts/displayathon-service
+          chmod +x artifacts/displayathon-service
+
+          # Version = ISO date + short SHA so multiple commits in a day don't collide.
+          VERSION="$(date -u +%Y.%m.%d)-${GITHUB_SHA::7}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          echo "--- built artifacts ---"
+          ls -lh artifacts/
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="v${{ steps.package.outputs.version }}"
+          COMMIT_MSG=$(git log -1 --pretty=%B)
+
+          NOTES=$(cat <<EOF
+          Automated build from commit \`${{ github.sha }}\`.
+
+          ## Install
+
+          1. Download both files below.
+          2. Unzip \`displayathon.app.zip\` and drag the \`.app\` to \`/Applications\`.
+             First launch: right-click → **Open** to get past Gatekeeper.
+          3. Drop \`displayathon-service\` into your local clone's \`dist/\` directory and run
+             \`./service/install.sh\`, **or** put it directly at
+             \`~/Library/displayathon/bin/displayathon-service\` and register the launchd plist.
+
+          ## Commit
+          \`\`\`
+          $COMMIT_MSG
+          \`\`\`
+          EOF
+          )
+
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes "$NOTES" \
+            artifacts/displayathon.app.zip \
+            artifacts/displayathon-service
