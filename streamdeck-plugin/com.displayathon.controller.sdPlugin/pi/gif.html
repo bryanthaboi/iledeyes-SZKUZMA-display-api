@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="common.css">
+</head><body>
+<div id="server"></div>
+
+<h2>GIF</h2>
+<div class="row">
+  <label>File path</label>
+  <input type="text" id="path" placeholder="/Users/you/Pictures/loop.gif">
+</div>
+<div class="hint">Absolute path to a <code>.gif</code> on the same machine running Stream Deck. The plugin reads the bytes and POSTs them as <code>image/gif</code>; the service auto-resizes to 96×16.</div>
+
+<script src="common.js"></script>
+<script>
+document.getElementById('server').innerHTML = datPI.serverBlock();
+datPI.onSettings = (s) => {
+  datPI.wireServerBlock();
+  if (s.path) document.getElementById('path').value = s.path;
+  datPI.bind('#path', 'path');
+};
+</script>
+</body></html>

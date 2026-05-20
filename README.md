@@ -8,10 +8,11 @@ SZKUZMA flexible LED matrix · 96×16 USB-powered Bluetooth panel · advertises 
 
 | Piece | What it is |
 |---|---|
-| **`displayathon-service`** | Long-running HTTP service that owns the Bluetooth connection. Accepts solid colors, gradient fades, GIFs, and scrolling text via a small REST API. Runs forever under `launchd`. Reachable on the LAN. |
+| **`displayathon-service`** | Long-running HTTP service that owns the Bluetooth connection. Accepts solid colors, gradient fades, GIFs, and scrolling text via a small REST API. Runs forever under `launchd`. Reachable on the LAN. Hardened: eager pyobjc warmup at startup, retry-with-backoff on transient BLE failures, last-resort exception handler keeps the service serving on any error. |
 | **`displayathon.app`** | Native macOS desktop window built with NiceGUI. A thin client over the service; opens any time you want to drive the display from a UI. |
+| **`displayathon` Stream Deck plugin** | One key per service capability — Solid · Fade · Text · GIF · Health · Rewarm BLE. Configure the service URL once (single GLOBAL setting); every key uses it. Source under `streamdeck-plugin/`. |
 
-Both ship as standalone PyInstaller binaries — **no system Python, no venv, no pip** required to run them. The wire-level Bluetooth protocol lives in `displayathon.py` and is reused unchanged.
+Both binaries ship as standalone PyInstaller artifacts — **no system Python, no venv, no pip** required to run them. The wire-level Bluetooth protocol lives in `displayathon.py` and is reused unchanged.
 
 ---
 
@@ -43,9 +44,18 @@ build.sh                   builds the two standalone artifacts
 packaging/
   service.spec               PyInstaller spec for displayathon-service
   app.spec                   PyInstaller spec for displayathon.app
+  rt_preload_pyobjc.py       runtime hook — eager-loads CoreBluetooth so
+                             the frozen binary can't crash on first BLE call
 service/
   install.sh                 installs the service with launchd
   uninstall.sh               removes the service
+streamdeck-plugin/         Elgato Stream Deck plugin
+  com.displayathon.controller.sdPlugin/
+                             manifest, plugin host (code/), Property
+                             Inspectors (pi/), icons (images/)
+  make-icons.js              pure-Node PNG generator for plugin icons
+  build-plugin.sh            zips the .sdPlugin → .streamDeckPlugin
+  install-plugin.sh          drops it into Stream Deck's plugins dir
 fonts/
   m6x11plus.ttf              bundled fonts for the Text mode
 requirements.txt           pinned Python deps (build-time only)
@@ -158,7 +168,35 @@ All endpoints return JSON `{ok: bool, message: str, meta: {...}}` unless noted. 
 curl -s http://127.0.0.1:49696/api/health
 ```
 ```json
-{"ok":true,"version":"0.1.0","busy":false,"uptime_s":42,"last_upload_ts":0,"port":49696}
+{
+  "ok": true,
+  "version": "0.2.0",
+  "busy": false,
+  "uptime_s": 42,
+  "last_upload_ts": 0,
+  "port": 49696,
+  "ble_ready": true,
+  "ble_error": null,
+  "retries_per_upload": 3
+}
+```
+
+`ble_ready` reports whether CoreBluetooth + bleak loaded cleanly at startup. `retries_per_upload` is the per-call retry budget for transient BLE failures (override with `DISPLAYATHON_RETRIES`).
+
+### `POST /api/ble/rewarm`
+
+Manually re-runs the BLE backend warmup if the first warmup failed at startup:
+
+```bash
+curl -X POST http://127.0.0.1:49696/api/ble/rewarm
+```
+
+### `GET /api/actions`
+
+Lists every capability the service exposes (used by the Stream Deck plugin to discover endpoints):
+
+```bash
+curl -s http://127.0.0.1:49696/api/actions
 ```
 
 ### `GET /api/fonts`
@@ -295,6 +333,26 @@ Because the service is just a plain HTTP API bound to your LAN, anything that ca
 - **Raid incoming** → flash + GIF: `POST /api/gif` with a celebration GIF
 
 Streamer.bot variables URL-encode cleanly into the query-string form, so you don't need a webhook server in the middle — the bot talks straight to the service.
+
+### Stream Deck plugin
+
+The repo ships a first-party Elgato Stream Deck plugin under `streamdeck-plugin/`. One action per service capability — drop any of them onto a key, set the Base URL once (single GLOBAL setting), and every key talks to that service.
+
+```bash
+./streamdeck-plugin/install-plugin.sh        # macOS: copies bundle + restarts Stream Deck
+./streamdeck-plugin/build-plugin.sh          # produces .streamDeckPlugin for Windows / sharing
+```
+
+Actions:
+
+- **Solid** — fill the display with one color
+- **Fade** — ping-pong fade between two colors
+- **Text** — scrolling text with font/size/weight/style/colors/letter-spacing/y-offset
+- **GIF** — send a `.gif` file from disk (plugin reads the file, POSTs to `/api/gif`)
+- **Health** — press to ping `/api/health`; key title shows `v0.2.0 / uptime / BLE?` so you can see service state at a glance
+- **Rewarm BLE** — fires `POST /api/ble/rewarm`; useful if the BLE adapter glitched
+
+The plugin runs on a different machine just by setting Base URL to `http://<server-ip>:49696` in any action's Property Inspector. Released `.streamDeckPlugin` files are attached to every GitHub release — double-click to install on macOS or Windows.
 
 ### Other natural fits
 

@@ -3,7 +3,7 @@
 # also setting the working directory to the repo root.
 # -*- mode: python ; coding: utf-8 -*-
 
-from PyInstaller.utils.hooks import collect_all, collect_submodules
+from PyInstaller.utils.hooks import collect_all, collect_dynamic_libs, collect_submodules
 
 block_cipher = None
 
@@ -23,20 +23,38 @@ hidden = (
     + collect_submodules("objc")
 )
 
+# pyobjc framework wrappers ship native `_<framework>.cpython-*.so` C
+# extensions that collect_submodules does NOT pick up. Without these the
+# bundled binary lazy-loads CoreBluetooth and dies with:
+#     ImportError: cannot import name '_CoreBluetooth' from partially
+#     initialized module 'CoreBluetooth' (most likely due to a circular import)
+# Pull every relevant framework's dynamic libs in by hand.
+pyobjc_binaries = (
+    collect_dynamic_libs("objc")
+    + collect_dynamic_libs("Foundation")
+    + collect_dynamic_libs("AppKit")
+    + collect_dynamic_libs("Quartz")
+    + collect_dynamic_libs("CoreBluetooth")
+    + collect_dynamic_libs("bleak")
+)
+
 # Pull PIL plugins (Image.open dispatches via these).
 pil_datas, pil_binaries, pil_hidden = collect_all("PIL")
 
 a = Analysis(
     ["../display_service.py"],
     pathex=["."],
-    binaries=pil_binaries,
+    binaries=pil_binaries + pyobjc_binaries,
     datas=pil_datas + [("../fonts", "fonts")],
     hiddenimports=hidden + pil_hidden + [
         "PIL.Image", "PIL.ImageDraw", "PIL.ImageFont",
         "displayathon",
     ],
     hookspath=[],
-    runtime_hooks=[],
+    # rt_preload_pyobjc.py runs before the user module imports, eagerly loading
+    # CoreBluetooth so the lazy-load chain from bleak can't hit a partial init.
+    # Path is resolved relative to build.sh's cwd (the repo root).
+    runtime_hooks=["packaging/rt_preload_pyobjc.py"],
     excludes=["tkinter", "nicegui", "pywebview", "webview"],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,

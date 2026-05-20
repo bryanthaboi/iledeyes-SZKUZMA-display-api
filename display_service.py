@@ -55,11 +55,55 @@ BRIGHTNESS = 10
 WIDTH = dat.WIDTH
 HEIGHT = dat.HEIGHT
 CHUNK_SIZE = dat.CHUNK_SIZE
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 
 PORT = int(os.environ.get("DISPLAYATHON_PORT", "49696"))
 HOST = os.environ.get("DISPLAYATHON_HOST", "0.0.0.0")
 LOG_LEVEL = os.environ.get("DISPLAYATHON_LOG", "INFO").upper()
+# How many times to retry an upload before surfacing the error. The retries
+# use exponential backoff with jitter (see _do_upload_with_retries).
+UPLOAD_RETRIES = int(os.environ.get("DISPLAYATHON_RETRIES", "3"))
+
+
+# ---------------------------------------------------------------------------
+# eager BLE / pyobjc warmup
+#
+# In the PyInstaller-bundled binary, the first time bleak lazy-imports the
+# CoreBluetooth backend the import chain can hit a partial-init state and
+# blow up with `cannot import name '_CoreBluetooth'`. The fix is to walk
+# the entire lazy chain at module load — when the runtime hook
+# packaging/rt_preload_pyobjc.py has already done this in the frozen binary
+# we just hit the module cache here.
+#
+# This block is best-effort: a non-mac dev box (or a busted pyobjc install)
+# is still allowed to serve `/api/health` and return graceful errors for
+# any upload attempt.
+# ---------------------------------------------------------------------------
+
+_BLE_BACKEND_READY = False
+_BLE_BACKEND_ERROR: Optional[str] = None
+
+
+def _warm_ble_backend() -> None:
+    """Force-import CoreBluetooth + bleak so the first BLE call can't crash."""
+    global _BLE_BACKEND_READY, _BLE_BACKEND_ERROR
+    try:
+        import objc  # noqa: F401  pyobjc bridge
+        import Foundation  # noqa: F401
+        import AppKit  # noqa: F401
+        import CoreBluetooth  # noqa: F401
+        import bleak  # noqa: F401
+        from bleak.backends import corebluetooth as _bcb  # noqa: F401
+        from bleak.backends.corebluetooth import scanner as _bcs  # noqa: F401
+        from bleak.backends.corebluetooth import client as _bcc  # noqa: F401
+        _BLE_BACKEND_READY = True
+        _BLE_BACKEND_ERROR = None
+    except Exception as exc:
+        _BLE_BACKEND_READY = False
+        _BLE_BACKEND_ERROR = f"{type(exc).__name__}: {exc}"
+
+
+_warm_ble_backend()
 
 
 # ---------------------------------------------------------------------------
@@ -501,6 +545,14 @@ _state = {"last_upload_ts": 0.0, "started_at": time.time()}
 
 async def do_upload(mode: str, payload: bytes) -> dict:
     """Connect to iledeyes-*, push the payload, return ack stats. Raises on failure."""
+    if not _BLE_BACKEND_READY:
+        # Retry the warmup once on the chance the first attempt raced with
+        # PyInstaller's loader; success here makes future calls cheap.
+        _warm_ble_backend()
+        if not _BLE_BACKEND_READY:
+            raise BleError(
+                f"BLE backend not ready: {_BLE_BACKEND_ERROR or 'unknown'}"
+            )
     try:
         from bleak import BleakClient, BleakScanner
         from bleak.exc import BleakError
@@ -575,12 +627,45 @@ async def do_upload(mode: str, payload: bytes) -> dict:
     }
 
 
+async def _do_upload_with_retries(mode: str, payload: bytes) -> dict:
+    """Retry transient BLE failures (adapter glitches, scan timeouts, dropped
+    connections) before surfacing an error. Only `BleError`/`DeviceNotFoundError`
+    are considered transient; explicit BadInputError or hard import failures
+    are not retried.
+    """
+    import random
+    attempts = max(1, UPLOAD_RETRIES)
+    last_exc: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            result = await do_upload(mode, payload)
+            if attempt > 1:
+                log.info("upload succeeded on attempt %d/%d", attempt, attempts)
+                result["retries"] = attempt - 1
+            return result
+        except (BleError, DeviceNotFoundError) as exc:
+            last_exc = exc
+            if attempt >= attempts:
+                break
+            # 0.4s, 0.9s, 1.6s + small jitter — fits comfortably under the
+            # client-side timeout while giving the BLE adapter a chance to
+            # recover between scan attempts.
+            delay = 0.4 * (attempt ** 1.5) + random.uniform(0, 0.15)
+            log.warning(
+                "upload attempt %d/%d failed (%s) — retrying in %.2fs",
+                attempt, attempts, type(exc).__name__, delay,
+            )
+            await asyncio.sleep(delay)
+    assert last_exc is not None
+    raise last_exc
+
+
 async def upload_with_lock(mode: str, payload: bytes) -> dict:
     """Acquire the BLE lock non-blocking; raise 429-style error if held."""
     if _ble_lock.locked():
         raise HTTPException(status_code=429, detail="BLE busy — another upload in progress")
     async with _ble_lock:
-        return await do_upload(mode, payload)
+        return await _do_upload_with_retries(mode, payload)
 
 
 # ---------------------------------------------------------------------------
@@ -593,6 +678,11 @@ async def lifespan(app: FastAPI):
         "displayathon-service v%s · python %s · port %d · host %s",
         VERSION, sys.executable, PORT, HOST,
     )
+    if _BLE_BACKEND_READY:
+        log.info("BLE backend ready (CoreBluetooth + bleak pre-warmed)")
+    else:
+        log.warning("BLE backend NOT ready: %s — uploads will return 503",
+                    _BLE_BACKEND_ERROR)
     _state["started_at"] = time.time()
     yield
     # Graceful shutdown: give an in-flight upload up to 1s to drain.
@@ -624,6 +714,23 @@ async def _validation_handler(request: Request, exc: RequestValidationError):
     return JSONResponse(
         {"ok": False, "message": f"{first.get('msg', 'invalid')} at {'.'.join(str(x) for x in first.get('loc', []))}"},
         status_code=400,
+    )
+
+
+@app.exception_handler(Exception)
+async def _unhandled_handler(request: Request, exc: Exception):
+    """Last-resort: keep the service serving instead of crashing a worker.
+
+    Without this, an unexpected exception from a non-upload endpoint (or a
+    sync handler that's not wrapped by _run_upload) would surface as a 500
+    with a stack trace in the response and could wedge a worker depending on
+    the failure point. Translate it to a uniform JSON envelope and log the
+    full traceback to err.log.
+    """
+    log.exception("unhandled exception in %s %s", request.method, request.url.path)
+    return JSONResponse(
+        {"ok": False, "message": f"{type(exc).__name__}: {exc}"},
+        status_code=500,
     )
 
 
@@ -713,6 +820,51 @@ async def health() -> dict:
         "uptime_s": int(time.time() - _state["started_at"]),
         "last_upload_ts": int(_state["last_upload_ts"]) if _state["last_upload_ts"] else 0,
         "port": PORT,
+        "ble_ready": _BLE_BACKEND_READY,
+        "ble_error": _BLE_BACKEND_ERROR,
+        "retries_per_upload": UPLOAD_RETRIES,
+    }
+
+
+@app.post("/api/ble/rewarm")
+async def ble_rewarm() -> dict:
+    """Manually retrigger the BLE backend warmup. Useful if the first warmup
+    failed at startup and the user wants to retry without restarting launchd.
+    """
+    _warm_ble_backend()
+    return {
+        "ok": _BLE_BACKEND_READY,
+        "message": "ble backend ready" if _BLE_BACKEND_READY else f"warmup failed: {_BLE_BACKEND_ERROR}",
+        "ble_ready": _BLE_BACKEND_READY,
+        "ble_error": _BLE_BACKEND_ERROR,
+    }
+
+
+@app.get("/api/actions")
+async def list_actions() -> dict:
+    """Enumerate everything the Stream Deck plugin (or any other UI) can do.
+
+    The plugin uses this to populate property-inspector dropdowns without
+    hard-coding endpoint catalogs in two places.
+    """
+    return {
+        "ok": True,
+        "actions": [
+            {"id": "solid", "method": "POST", "path": "/api/solid",
+             "desc": "Fill the display with one solid color."},
+            {"id": "fade", "method": "POST", "path": "/api/fade",
+             "desc": "Ping-pong fade between two colors."},
+            {"id": "gif", "method": "POST", "path": "/api/gif",
+             "desc": "Upload a GIF (auto-resized to 96×16)."},
+            {"id": "text", "method": "POST", "path": "/api/text",
+             "desc": "Render scrolling text via CoreText."},
+            {"id": "text-get", "method": "GET", "path": "/api/text?text=...",
+             "desc": "Quick scroll — text in the query string."},
+            {"id": "rewarm", "method": "POST", "path": "/api/ble/rewarm",
+             "desc": "Re-run the BLE backend warmup."},
+            {"id": "health", "method": "GET", "path": "/api/health",
+             "desc": "Service liveness + busy + ble-ready status."},
+        ],
     }
 
 

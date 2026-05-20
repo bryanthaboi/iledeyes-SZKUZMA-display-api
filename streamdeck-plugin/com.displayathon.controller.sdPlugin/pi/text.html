@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="common.css">
+</head><body>
+<div id="server"></div>
+
+<h2>Text</h2>
+<div class="row">
+  <label>Text</label>
+  <input type="text" id="text" placeholder="Hello!">
+</div>
+<div class="row">
+  <label>Font</label>
+  <select id="font"></select>
+  <button id="refresh">↻</button>
+</div>
+<div class="row">
+  <label>Size</label>
+  <input type="number" id="size" min="6" max="64">
+</div>
+<div class="row">
+  <label>Weight</label>
+  <select id="weight">
+    <option value="100">100 Thin</option>
+    <option value="300">300 Light</option>
+    <option value="400">400 Regular</option>
+    <option value="500">500 Medium</option>
+    <option value="700">700 Bold</option>
+    <option value="900">900 Black</option>
+  </select>
+</div>
+<div class="row">
+  <label>Style</label>
+  <select id="style">
+    <option value="normal">normal</option>
+    <option value="italic">italic</option>
+    <option value="oblique">oblique</option>
+  </select>
+</div>
+<div class="row">
+  <label>Foreground</label>
+  <input type="color" id="fg">
+</div>
+<div class="row">
+  <label>Background</label>
+  <input type="color" id="bg">
+</div>
+<div class="row">
+  <label>Letter spc</label>
+  <input type="number" id="letter_spacing" min="-4" max="8">
+</div>
+<div class="row">
+  <label>Y offset</label>
+  <input type="number" id="y_offset" min="-8" max="8">
+</div>
+<div class="row">
+  <label>Antialias</label>
+  <input type="checkbox" id="antialias">
+</div>
+
+<script src="common.js"></script>
+<script>
+document.getElementById('server').innerHTML = datPI.serverBlock();
+datPI.onSettings = (s) => {
+  datPI.wireServerBlock();
+  if (!s.text)            s.text = 'BOIS CLUB GAMES';
+  if (!s.size)            s.size = 17;
+  if (!s.weight)          s.weight = 900;
+  if (!s.style)           s.style = 'normal';
+  if (!s.fg)              s.fg = '#ffcc00';
+  if (!s.bg)              s.bg = '#000000';
+  if (s.letter_spacing == null) s.letter_spacing = 0;
+  if (s.y_offset == null)       s.y_offset = 0;
+  if (s.antialias == null)      s.antialias = false;
+
+  document.getElementById('text').value = s.text;
+  document.getElementById('size').value = s.size;
+  document.getElementById('weight').value = String(s.weight);
+  document.getElementById('style').value = s.style;
+  document.getElementById('fg').value = s.fg;
+  document.getElementById('bg').value = s.bg;
+  document.getElementById('letter_spacing').value = s.letter_spacing;
+  document.getElementById('y_offset').value = s.y_offset;
+  document.getElementById('antialias').checked = !!s.antialias;
+
+  datPI.bind('#text', 'text');
+  datPI.bind('#size', 'size', (v) => parseInt(v, 10));
+  datPI.bind('#weight', 'weight', (v) => parseInt(v, 10));
+  datPI.bind('#style', 'style');
+  datPI.bind('#fg', 'fg');
+  datPI.bind('#bg', 'bg');
+  datPI.bind('#letter_spacing', 'letter_spacing', (v) => parseInt(v, 10));
+  datPI.bind('#y_offset', 'y_offset', (v) => parseInt(v, 10));
+  datPI.bind('#antialias', 'antialias');
+
+  datPI.loadFonts('font', s.font);
+  datPI.bind('#font', 'font');
+  document.getElementById('refresh').onclick = () => datPI.loadFonts('font', datPI.settings.font);
+};
+</script>
+</body></html>

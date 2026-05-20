@@ -34,6 +34,9 @@ jobs:
       - name: Build artifacts
         run: ./build.sh
 
+      - name: Build Stream Deck plugin
+        run: ./streamdeck-plugin/build-plugin.sh
+
       - name: Package artifacts
         id: package
         run: |
@@ -50,6 +53,10 @@ jobs:
           cp dist/displayathon-service artifacts/displayathon-service
           chmod +x artifacts/displayathon-service
 
+          # Stream Deck plugin bundle (double-click to install on macOS or Windows)
+          cp streamdeck-plugin/dist/com.displayathon.controller.streamDeckPlugin \
+             artifacts/com.displayathon.controller.streamDeckPlugin
+
           # Version = ISO date + short SHA so multiple commits in a day don't collide.
           VERSION="$(date -u +%Y.%m.%d)-${GITHUB_SHA::7}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -65,12 +72,15 @@ jobs:
             echo ""
             echo "## Install"
             echo ""
-            echo "1. Download both files below."
+            echo "1. Download the artifacts below."
             echo "2. Unzip \`displayathon.app.zip\` and drag the \`.app\` to \`/Applications\`."
             echo "   First launch: right-click → **Open** to get past Gatekeeper."
             echo "3. Drop \`displayathon-service\` into the repo dist/ folder and run"
             echo "   \`./service/install.sh\`, or put it directly at"
             echo "   \`~/Library/displayathon/bin/displayathon-service\` and register the launchd plist."
+            echo "4. (Optional) Double-click \`com.displayathon.controller.streamDeckPlugin\`"
+            echo "   to install the Stream Deck plugin. Configure its Base URL in any action's"
+            echo "   Property Inspector — one global setting, shared by every key."
             echo ""
             echo "## Commit"
             echo '```'
@@ -90,4 +100,5 @@ jobs:
             --title "$TAG" \
             --notes-file release-notes.md \
             artifacts/displayathon.app.zip \
-            artifacts/displayathon-service
+            artifacts/displayathon-service \
+            artifacts/com.displayathon.controller.streamDeckPlugin

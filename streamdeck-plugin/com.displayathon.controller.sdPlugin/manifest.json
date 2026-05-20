@@ -1,0 +1,74 @@
+{
+  "Name": "displayathon",
+  "Description": "Drive the displayathon LED display (iledeyes-*) through the displayathon HTTP service. Solid colors, fades, scrolling text, GIFs, health checks and BLE recovery — one action per capability.",
+  "Author": "Bois Club",
+  "Version": "1.0.0",
+  "Icon": "images/plugin",
+  "CategoryIcon": "images/category",
+  "Category": "displayathon",
+  "URL": "http://127.0.0.1:49696/",
+  "CodePath": "code/plugin.html",
+  "PropertyInspectorPath": "pi/default.html",
+  "SDKVersion": 2,
+  "Software": { "MinimumVersion": "6.5" },
+  "OS": [
+    { "Platform": "mac", "MinimumVersion": "12" },
+    { "Platform": "windows", "MinimumVersion": "10" }
+  ],
+  "Actions": [
+    {
+      "UUID": "com.displayathon.controller.solid",
+      "Name": "displayathon · Solid",
+      "Tooltip": "Fill the display with one solid color.",
+      "Icon": "images/solid",
+      "PropertyInspectorPath": "pi/solid.html",
+      "States": [{ "Image": "images/solid-key", "TitleAlignment": "middle", "FontSize": "11", "Title": "Solid" }],
+      "Controllers": ["Keypad"]
+    },
+    {
+      "UUID": "com.displayathon.controller.fade",
+      "Name": "displayathon · Fade",
+      "Tooltip": "Ping-pong fade between two colors.",
+      "Icon": "images/fade",
+      "PropertyInspectorPath": "pi/fade.html",
+      "States": [{ "Image": "images/fade-key", "TitleAlignment": "middle", "FontSize": "11", "Title": "Fade" }],
+      "Controllers": ["Keypad"]
+    },
+    {
+      "UUID": "com.displayathon.controller.text",
+      "Name": "displayathon · Text",
+      "Tooltip": "Scroll text across the display.",
+      "Icon": "images/text",
+      "PropertyInspectorPath": "pi/text.html",
+      "States": [{ "Image": "images/text-key", "TitleAlignment": "middle", "FontSize": "11", "Title": "Text" }],
+      "Controllers": ["Keypad"]
+    },
+    {
+      "UUID": "com.displayathon.controller.gif",
+      "Name": "displayathon · GIF",
+      "Tooltip": "Send a .gif file from disk to the display (auto-resized to 96×16).",
+      "Icon": "images/gif",
+      "PropertyInspectorPath": "pi/gif.html",
+      "States": [{ "Image": "images/gif-key", "TitleAlignment": "middle", "FontSize": "11", "Title": "GIF" }],
+      "Controllers": ["Keypad"]
+    },
+    {
+      "UUID": "com.displayathon.controller.health",
+      "Name": "displayathon · Health",
+      "Tooltip": "Ping the service and show uptime + BLE backend state. Press to refresh.",
+      "Icon": "images/health",
+      "PropertyInspectorPath": "pi/health.html",
+      "States": [{ "Image": "images/health-key", "TitleAlignment": "middle", "FontSize": "11", "Title": "Health" }],
+      "Controllers": ["Keypad"]
+    },
+    {
+      "UUID": "com.displayathon.controller.rewarm",
+      "Name": "displayathon · Rewarm BLE",
+      "Tooltip": "Re-run the service's BLE backend warmup if a transfer is stuck.",
+      "Icon": "images/rewarm",
+      "PropertyInspectorPath": "pi/rewarm.html",
+      "States": [{ "Image": "images/rewarm-key", "TitleAlignment": "middle", "FontSize": "11", "Title": "Rewarm" }],
+      "Controllers": ["Keypad"]
+    }
+  ]
+}

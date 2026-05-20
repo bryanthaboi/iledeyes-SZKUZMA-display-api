@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="common.css">
+</head><body>
+<div id="server"></div>
+
+<h2>Fade</h2>
+<div class="row">
+  <label>From</label>
+  <input type="color" id="hexA">
+  <span class="value" id="hexAVal"></span>
+</div>
+<div class="row">
+  <label>To</label>
+  <input type="color" id="hexB">
+  <span class="value" id="hexBVal"></span>
+</div>
+<div class="row">
+  <label>Frames</label>
+  <input type="number" id="frames" min="2" max="200" step="2">
+</div>
+<div class="hint">Ping-pong fade — 40 frames is a slow cycle, 10 is snappy.</div>
+
+<script src="common.js"></script>
+<script>
+document.getElementById('server').innerHTML = datPI.serverBlock();
+datPI.onSettings = (s) => {
+  datPI.wireServerBlock();
+  if (!s.hexA) s.hexA = '#ff0000';
+  if (!s.hexB) s.hexB = '#0000ff';
+  if (!s.frames) s.frames = 40;
+  document.getElementById('hexA').value = s.hexA;
+  document.getElementById('hexB').value = s.hexB;
+  document.getElementById('frames').value = s.frames;
+  document.getElementById('hexAVal').textContent = s.hexA.toUpperCase();
+  document.getElementById('hexBVal').textContent = s.hexB.toUpperCase();
+  datPI.bind('#hexA', 'hexA');
+  datPI.bind('#hexB', 'hexB');
+  datPI.bind('#frames', 'frames', (v) => parseInt(v, 10));
+  document.getElementById('hexA').addEventListener('input', (e) =>
+    document.getElementById('hexAVal').textContent = e.target.value.toUpperCase());
+  document.getElementById('hexB').addEventListener('input', (e) =>
+    document.getElementById('hexBVal').textContent = e.target.value.toUpperCase());
+};
+</script>
+</body></html>
